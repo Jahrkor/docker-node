@@ -113,6 +113,7 @@ RUN apk add --no-cache --virtual .build-deps-yarn curl gnupg tar \
   && rm -rf /tmp/*
 
 COPY docker-entrypoint.sh /usr/local/bin/
+USER node
 ENTRYPOINT ["docker-entrypoint.sh"]
 
 CMD [ "node" ]
