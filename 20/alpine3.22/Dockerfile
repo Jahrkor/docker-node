@@ -1,6 +1,8 @@
 FROM alpine:3.22
 
 ENV NODE_VERSION=20.20.2
+ENV NPM_VERSION=11.13.0
+ARG NPM_TARBALL_SHA512=7119a16a0843580d65160977520e3f5710c974f04afd4fad36d9eb97d917ba716a856c35c78c4be6dc64367eeaccfb957ef5ce997ca31e9330b2e936ba2b1b92
 
 RUN addgroup -g 1000 node \
     && adduser -u 1000 -G node -s /bin/sh -D node \
@@ -72,6 +74,12 @@ RUN addgroup -g 1000 node \
   && rm -f "node-v$NODE_VERSION-linux-$ARCH-musl.tar.xz" \
   # Remove unused OpenSSL headers to save ~34MB. See this NodeJS issue: https://github.com/nodejs/node/issues/46451
   && find /usr/local/include/node/openssl/archs -mindepth 1 -maxdepth 1 ! -name "$OPENSSL_ARCH" -exec rm -rf {} \; \
+  && curl -fsSLO --compressed "https://registry.npmjs.org/npm/-/npm-$NPM_VERSION.tgz" \
+  && echo "$NPM_TARBALL_SHA512  npm-$NPM_VERSION.tgz" | sha512sum -c - \
+  && rm -rf /usr/local/lib/node_modules/npm \
+  && mkdir -p /usr/local/lib/node_modules/npm \
+  && tar -xzf "npm-$NPM_VERSION.tgz" -C /usr/local/lib/node_modules/npm --strip-components=1 --no-same-owner \
+  && rm "npm-$NPM_VERSION.tgz" \
   && apk del .build-deps \
   # smoke tests
   && node --version \
