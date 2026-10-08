@@ -1,8 +1,18 @@
 FROM alpine:3.24
 
 ENV NODE_VERSION=26.11.1
+ENV NPM_VERSION=12.2.0
 
-RUN addgroup -g 1000 node \
+ARG SOURCE_REVISION=unknown
+LABEL org.opencontainers.image.source="https://github.com/Jahrkor/docker-node" \
+      org.opencontainers.image.revision="$SOURCE_REVISION" \
+      org.opencontainers.image.title="Runode" \
+      org.opencontainers.image.version="$NODE_VERSION-alpine3.24"
+
+COPY runode-patch-npm-bundle.js /tmp/
+
+RUN apk upgrade --no-cache \
+    && addgroup -g 1000 node \
     && adduser -u 1000 -G node -s /bin/sh -D node \
     && apk add --no-cache \
         libatomic \
@@ -74,14 +84,51 @@ RUN addgroup -g 1000 node \
   fi \
   # Remove unused OpenSSL headers to save ~34MB. See this NodeJS issue: https://github.com/nodejs/node/issues/46451
   && find /usr/local/include/node/openssl/archs -mindepth 1 -maxdepth 1 ! -name "$OPENSSL_ARCH" -exec rm -rf {} \; \
+  # Replace npm and vulnerable vendored packages with content-addressed releases.
+  && mkdir -p /tmp/npm-security-patches \
+  && cd /tmp/npm-security-patches \
+  && npm pack --silent npm@12.2.0 \
+  && npm pack --silent brace-expansion@5.0.12 \
+  && npm pack --silent undici@6.28.1 \
+  && npm pack --silent ip-address@10.7.3 \
+  && npm pack --silent postcss-selector-parser@7.1.6 \
+  && npm pack --silent http-cache-semantics@4.3.0 \
+  && echo "66c2632a94e796649738b2d7894d710c2cc2e1696893823066687f6b0d8a52e5f2b54eeaeaa32ffdc513ecca1e49ff794a5c2ec3f9515d879f1b3182b291cf35  npm-12.2.0.tgz" | sha512sum -c - \
+  && echo "628bd0debce168b308ac38cd0cc90d4b4d6d79af77aa11211b9c72f1febe47497e770dca8bee6c0a822823de368ae2d94c75a881692d830543854d3d88d12299  brace-expansion-5.0.12.tgz" | sha512sum -c - \
+  && echo "cd6a5d4d50f9e07e3c088c9b2f4ad6437ba4a5bf5ddb7c0cede1f946d7dd99e3fbd1c587363b5fa3b3f8bd95fee42a0370ee772783eee6e5e9ee535f8dce8344  undici-6.28.1.tgz" | sha512sum -c - \
+  && echo "03591dabfb526f9423bcabc032022812f0c12202fba9aa953ff8e4bd2c1861167d884cef3e9a29c69db041fbb74ae6511eda47371327f05b346d2fa07f95e6c2  ip-address-10.7.3.tgz" | sha512sum -c - \
+  && echo "eea0123f384a17697628b6e8459bb1f0209344c746895d3cbd69b22b33f3db6a99ed98d004e798eeb37336808b49489fb49ec752ad061111e6c70fedd1d09d33  postcss-selector-parser-7.1.6.tgz" | sha512sum -c - \
+  && echo "339b792e52694b5507323bf045055d147bcf21219e2c0c4d72b5ae2647868742b1b2a0876753b7357654ffcc7b703d010dc196f246a9c4c293bf096aacd90790  http-cache-semantics-4.3.0.tgz" | sha512sum -c - \
+  && rm -rf /usr/local/lib/node_modules/npm \
+  && mkdir -p /usr/local/lib/node_modules/npm \
+  && tar -xzf npm-12.2.0.tgz -C /usr/local/lib/node_modules/npm --strip-components=1 --no-same-owner \
+  && for spec in \
+      brace-expansion-5.0.12 \
+      undici-6.28.1 \
+      ip-address-10.7.3 \
+      postcss-selector-parser-7.1.6 \
+      http-cache-semantics-4.3.0 \
+    ; do \
+      package="${spec%-*}"; \
+      target="/usr/local/lib/node_modules/npm/node_modules/$package"; \
+      rm -rf "$target"; \
+      mkdir -p "$target"; \
+      tar -xzf "$spec.tgz" -C "$target" --strip-components=1 --no-same-owner; \
+    done \
+  && node /tmp/runode-patch-npm-bundle.js /usr/local/lib/node_modules/npm \
+  && ln -sf ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+  && ln -sf ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
   && apk del .build-deps \
   # smoke tests
   && node --version \
-  && npm --version \
-  && rm -rf /tmp/*
+  && test "$(npm --version)" = "$NPM_VERSION" \
+  && npm cache clean --force \
+  && rm -rf /root/.npm /home/node/.npm /var/cache/apk/* /tmp/*
 
 
 COPY docker-entrypoint.sh /usr/local/bin/
 ENTRYPOINT ["docker-entrypoint.sh"]
+
+USER node
 
 CMD [ "node" ]
